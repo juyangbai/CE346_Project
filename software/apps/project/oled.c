@@ -1,0 +1,298 @@
+#include <stdbool.h>
+#include <stdint.h>
+#include <math.h>
+#include <sgp30.h>
+#include <shtc3.h>
+#include <nrf_delay.h>
+#include <inttypes.h>
+#include <oled.h>
+#include <string.h>
+
+#define FONT_SIZE 5
+#define COL_START 32
+#define COL_END 91
+uint8_t OledLineNum,OledCursorPos;
+
+
+static const nrf_twi_mngr_t* i2c_manager = NULL;
+static uint8_t frame_buffer[360];
+
+const uint8_t font[][FONT_SIZE] = {
+        0x00, 0x00, 0x00, 0x00, 0x00,   // space
+        0x00, 0x00, 0x2f, 0x00, 0x00,   // !
+        0x00, 0x07, 0x00, 0x07, 0x00,   // "
+        0x14, 0x7f, 0x14, 0x7f, 0x14,   // #
+        0x24, 0x2a, 0x7f, 0x2a, 0x12,   // $
+        0x23, 0x13, 0x08, 0x64, 0x62,   // %
+        0x36, 0x49, 0x55, 0x22, 0x50,   // &
+        0x00, 0x05, 0x03, 0x00, 0x00,   // '
+        0x00, 0x1c, 0x22, 0x41, 0x00,   // (
+        0x00, 0x41, 0x22, 0x1c, 0x00,   // )
+        0x14, 0x08, 0x3E, 0x08, 0x14,   // *
+        0x08, 0x08, 0x3E, 0x08, 0x08,   // +
+        0x00, 0x00, 0xA0, 0x60, 0x00,   // ,
+        0x08, 0x08, 0x08, 0x08, 0x08,   // -
+        0x00, 0x60, 0x60, 0x00, 0x00,   // .
+        0x20, 0x10, 0x08, 0x04, 0x02,   // /
+
+        0x3E, 0x51, 0x49, 0x45, 0x3E,   // 0
+        0x00, 0x42, 0x7F, 0x40, 0x00,   // 1
+        0x42, 0x61, 0x51, 0x49, 0x46,   // 2
+        0x21, 0x41, 0x45, 0x4B, 0x31,   // 3
+        0x18, 0x14, 0x12, 0x7F, 0x10,   // 4
+        0x27, 0x45, 0x45, 0x45, 0x39,   // 5
+        0x3C, 0x4A, 0x49, 0x49, 0x30,   // 6
+        0x01, 0x71, 0x09, 0x05, 0x03,   // 7
+        0x36, 0x49, 0x49, 0x49, 0x36,   // 8
+        0x06, 0x49, 0x49, 0x29, 0x1E,   // 9
+
+        0x00, 0x36, 0x36, 0x00, 0x00,   // :
+        0x00, 0x56, 0x36, 0x00, 0x00,   // ;
+        0x08, 0x14, 0x22, 0x41, 0x00,   // <
+        0x14, 0x14, 0x14, 0x14, 0x14,   // =
+        0x00, 0x41, 0x22, 0x14, 0x08,   // >
+        0x02, 0x01, 0x51, 0x09, 0x06,   // ?
+        0x32, 0x49, 0x59, 0x51, 0x3E,   // @
+
+        0x7C, 0x12, 0x11, 0x12, 0x7C,   // A
+        0x7F, 0x49, 0x49, 0x49, 0x36,   // B
+        0x3E, 0x41, 0x41, 0x41, 0x22,   // C
+        0x7F, 0x41, 0x41, 0x22, 0x1C,   // D
+        0x7F, 0x49, 0x49, 0x49, 0x41,   // E
+        0x7F, 0x09, 0x09, 0x09, 0x01,   // F
+        0x3E, 0x41, 0x49, 0x49, 0x7A,   // G
+        0x7F, 0x08, 0x08, 0x08, 0x7F,   // H
+        0x00, 0x41, 0x7F, 0x41, 0x00,   // I
+        0x20, 0x40, 0x41, 0x3F, 0x01,   // J
+        0x7F, 0x08, 0x14, 0x22, 0x41,   // K
+        0x7F, 0x40, 0x40, 0x40, 0x40,   // L
+        0x7F, 0x02, 0x0C, 0x02, 0x7F,   // M
+        0x7F, 0x04, 0x08, 0x10, 0x7F,   // N
+        0x3E, 0x41, 0x41, 0x41, 0x3E,   // O
+        0x7F, 0x09, 0x09, 0x09, 0x06,   // P
+        0x3E, 0x41, 0x51, 0x21, 0x5E,   // Q
+        0x7F, 0x09, 0x19, 0x29, 0x46,   // R
+        0x46, 0x49, 0x49, 0x49, 0x31,   // S
+        0x01, 0x01, 0x7F, 0x01, 0x01,   // T
+        0x3F, 0x40, 0x40, 0x40, 0x3F,   // U
+        0x1F, 0x20, 0x40, 0x20, 0x1F,   // V
+        0x3F, 0x40, 0x38, 0x40, 0x3F,   // W
+        0x63, 0x14, 0x08, 0x14, 0x63,   // X
+        0x07, 0x08, 0x70, 0x08, 0x07,   // Y
+        0x61, 0x51, 0x49, 0x45, 0x43,   // Z
+
+        0x00, 0x7F, 0x41, 0x41, 0x00,   // [
+        0x55, 0xAA, 0x55, 0xAA, 0x55,   // Backslash (Checker pattern)
+        0x00, 0x41, 0x41, 0x7F, 0x00,   // ]
+        0x04, 0x02, 0x01, 0x02, 0x04,   // ^
+        0x40, 0x40, 0x40, 0x40, 0x40,   // _
+        0x00, 0x03, 0x05, 0x00, 0x00,   // `
+
+        0x20, 0x54, 0x54, 0x54, 0x78,   // a
+        0x7F, 0x48, 0x44, 0x44, 0x38,   // b
+        0x38, 0x44, 0x44, 0x44, 0x20,   // c
+        0x38, 0x44, 0x44, 0x48, 0x7F,   // d
+        0x38, 0x54, 0x54, 0x54, 0x18,   // e
+        0x08, 0x7E, 0x09, 0x01, 0x02,   // f
+        0x18, 0xA4, 0xA4, 0xA4, 0x7C,   // g
+        0x7F, 0x08, 0x04, 0x04, 0x78,   // h
+        0x00, 0x44, 0x7D, 0x40, 0x00,   // i
+        0x40, 0x80, 0x84, 0x7D, 0x00,   // j
+        0x7F, 0x10, 0x28, 0x44, 0x00,   // k
+        0x00, 0x41, 0x7F, 0x40, 0x00,   // l
+        0x7C, 0x04, 0x18, 0x04, 0x78,   // m
+        0x7C, 0x08, 0x04, 0x04, 0x78,   // n
+        0x38, 0x44, 0x44, 0x44, 0x38,   // o
+        0xFC, 0x24, 0x24, 0x24, 0x18,   // p
+        0x18, 0x24, 0x24, 0x18, 0xFC,   // q
+        0x7C, 0x08, 0x04, 0x04, 0x08,   // r
+        0x48, 0x54, 0x54, 0x54, 0x20,   // s
+        0x04, 0x3F, 0x44, 0x40, 0x20,   // t
+        0x3C, 0x40, 0x40, 0x20, 0x7C,   // u
+        0x1C, 0x20, 0x40, 0x20, 0x1C,   // v
+        0x3C, 0x40, 0x30, 0x40, 0x3C,   // w
+        0x44, 0x28, 0x10, 0x28, 0x44,   // x
+        0x1C, 0xA0, 0xA0, 0xA0, 0x7C,   // y
+        0x44, 0x64, 0x54, 0x4C, 0x44,   // z
+
+        0x00, 0x10, 0x7C, 0x82, 0x00,   // {
+        0x00, 0x00, 0xFF, 0x00, 0x00,   // |
+        0x00, 0x82, 0x7C, 0x10, 0x00,   // }
+        0x00, 0x06, 0x09, 0x09, 0x06    // ~ (Degrees)
+};
+
+static void oled_write_command(uint8_t i2c_addr, uint8_t command){
+  uint8_t compound[] = {CTRL_CMD, command};
+  nrf_twi_mngr_transfer_t const write_transfer[] = {
+                            NRF_TWI_MNGR_WRITE(i2c_addr, compound, 2, 0x00)
+  };
+  nrf_twi_mngr_perform(i2c_manager, NULL, write_transfer, 1, NULL);
+}
+
+static void oled_write_byte(uint8_t i2c_addr, uint8_t data){
+  uint8_t dtacompound[] = {CTRL_DATA, data};
+  nrf_twi_mngr_transfer_t const data_transfer[] = {
+                            NRF_TWI_MNGR_WRITE(i2c_addr, dtacompound, 2, 0x00)
+  };
+  nrf_twi_mngr_perform(i2c_manager, NULL, data_transfer, 1, NULL);
+}
+
+static uint8_t oled_read_byte(uint8_t i2c_addr){
+  uint8_t buffer = 0xff;
+  nrf_twi_mngr_transfer_t const read_transfer[] = {
+                            NRF_TWI_MNGR_READ(i2c_addr, &buffer, 1, 0)
+  };
+  nrf_twi_mngr_perform(i2c_manager, NULL, read_transfer, 1, NULL);
+  return buffer;
+}
+
+void oled_setup(void){
+  oled_write_command(OLED_ADDRESS_SA1, 0xA8);
+  oled_write_command(OLED_ADDRESS_SA1, 47);
+  oled_write_command(OLED_ADDRESS_SA1, 0xD3);
+  oled_write_command(OLED_ADDRESS_SA1, 0x00);
+  oled_write_command(OLED_ADDRESS_SA1, 0x40);
+  oled_write_command(OLED_ADDRESS_SA1, 0xA0);
+  oled_write_command(OLED_ADDRESS_SA1, 0xC0);
+  oled_write_command(OLED_ADDRESS_SA1, 0xDA);
+  oled_write_command(OLED_ADDRESS_SA1, 0x12);
+  oled_write_command(OLED_ADDRESS_SA1, 0x81);
+  oled_write_command(OLED_ADDRESS_SA1, 0xFF);
+  oled_write_command(OLED_ADDRESS_SA1, 0xA4);
+  oled_write_command(OLED_ADDRESS_SA1, 0xA6);
+  oled_write_command(OLED_ADDRESS_SA1, 0xD5);
+  oled_write_command(OLED_ADDRESS_SA1, 0x80);
+  oled_write_command(OLED_ADDRESS_SA1, 0x20);
+  oled_write_command(OLED_ADDRESS_SA1, 0x00);
+  oled_write_command(OLED_ADDRESS_SA1, 0x8D);
+  oled_write_command(OLED_ADDRESS_SA1, 0x14);
+  oled_write_command(OLED_ADDRESS_SA1, 0xAF);
+}
+
+void oled_clear(void){
+
+  oled_write_command(OLED_ADDRESS_SA1, 0x21);
+  oled_write_command(OLED_ADDRESS_SA1, COL_START);
+  oled_write_command(OLED_ADDRESS_SA1, COL_END+4);
+  oled_write_command(OLED_ADDRESS_SA1, 0x22);
+  oled_write_command(OLED_ADDRESS_SA1, 0);
+  oled_write_command(OLED_ADDRESS_SA1, 5);
+  for(int i = 0; i < 1024; i++){
+    oled_write_byte(OLED_ADDRESS_SA1, 0x00);
+  }
+}
+
+void oled_flash(void){
+
+  oled_write_command(OLED_ADDRESS_SA1, 0x21);
+  oled_write_command(OLED_ADDRESS_SA1, COL_START);
+  oled_write_command(OLED_ADDRESS_SA1, COL_END);
+  oled_write_command(OLED_ADDRESS_SA1, 0x22);
+  oled_write_command(OLED_ADDRESS_SA1, 0);
+  oled_write_command(OLED_ADDRESS_SA1, 5);
+
+  for(int i = 0; i < 1024; i++){
+    oled_write_byte(OLED_ADDRESS_SA1, 0xff);
+  }
+}
+
+void oled_draw_char(uint8_t chr){
+  if(chr != '\n'){
+    chr = chr - 0x20;
+    for(int i = 0; i < 5; i++){
+      uint8_t data = font[chr][i];
+      oled_write_byte(OLED_ADDRESS_SA1, data);
+      // nrf_delay_ms(30);
+    }
+    oled_write_byte(OLED_ADDRESS_SA1, 0x00);
+  }
+}
+
+void oled_draw_string(char* str, int pgStr, int pgEnd){
+  oled_write_command(OLED_ADDRESS_SA1, 0x21);
+  oled_write_command(OLED_ADDRESS_SA1, COL_START);
+  oled_write_command(OLED_ADDRESS_SA1, COL_END);
+  oled_write_command(OLED_ADDRESS_SA1, 0x22);
+  oled_write_command(OLED_ADDRESS_SA1, pgStr);
+  oled_write_command(OLED_ADDRESS_SA1, pgEnd);
+  for(int i = 0; str[i] != 0; i++){
+    oled_draw_char(str[i]);
+  }
+}
+
+void simple_draw(){
+
+  oled_write_command(OLED_ADDRESS_SA1, 0x21);
+  oled_write_command(OLED_ADDRESS_SA1, COL_START);
+  oled_write_command(OLED_ADDRESS_SA1, COL_END);
+
+  for(int i = 0; i < 360; i++){
+    frame_buffer[i] = 0x00;
+  }
+
+  frame_buffer[0] = 0x7F;
+  frame_buffer[1] = 0x09;
+  frame_buffer[2] = 0x09;
+  frame_buffer[3] = 0x09;
+  frame_buffer[4] = 0x01;
+
+  for(int i = 0; i < 6; i++){
+    oled_write_byte(OLED_ADDRESS_SA1, frame_buffer[i]);
+  }
+}
+
+void oled_init(const nrf_twi_mngr_t* i2c){
+  i2c_manager = i2c;
+
+  nrf_delay_ms(100);
+  oled_setup();
+  oled_clear();
+  oled_flash();
+  oled_clear();
+}
+
+// void oled_draw_data(int data_gas, int data_tvoc, double data_temp, double data_humid){
+//   // Type Convert
+//   char sgp_gas_str[20];
+//   char sgp_tvoc_str[20];
+//   char sht_temp_str[20];
+//   char sht_humid_str[20];
+
+//   sprintf(sgp_gas_str, "%s%d", "CO2:", data_gas);
+//   sprintf(sht_temp_str, "%s%.0f%s", "Temp: ", data_temp, "C");
+//   sprintf(sht_humid_str, "%s%.0f%c", "Humi: ", data_humid,'%');
+//   // // sprintf(sgp_tvoc_str, "%s%d%s", "TVOC:", data_tvoc, "   ");
+//   // sprintf(sht_humid_str, "%s%.0f%s", "Humi:", data_humid);
+
+//   //oled_clear();
+//   oled_draw_string(sgp_gas_str, 0);
+//   oled_draw_string(sht_temp_str, 1);
+//   oled_draw_string(sht_humid_str,2);
+// }
+
+void oled_adv_draw(){
+  // uint16_t co2 = ((sgp30_buffer & 0xffff0000) >> 16);
+  // SHTC3_BUFFER_TEMPERATRUE;
+  // SHTC3_BUFFER_HUMIDITY;
+  
+  // Measure
+  sgp30_measure();
+  shtc3_measure();
+
+  // buffer init
+  char sgp_gas_str[10];
+  char sht_temp_str[10];
+  char sht_humid_str[10];
+  char sgp_tvoc_str[20];
+
+  sprintf(sgp_gas_str, "%s%d%s", "CO2: ", ((sgp30_buffer & 0xffff0000) >> 16), " ");
+  sprintf(sht_temp_str, "%s%.0f%s", "Temp: ", SHTC3_BUFFER_TEMPERATRUE, "C");
+  sprintf(sht_humid_str, "%s%.0f%c", "Humi: ", SHTC3_BUFFER_HUMIDITY,'%');
+  sprintf(sgp_tvoc_str, "%s%d%s", "TVOC: ", (sgp30_buffer & 0x0000ffff), " ");
+
+  // Draw
+  oled_draw_string(sgp_gas_str, 0, 0);
+  oled_draw_string(sht_temp_str, 1, 1);
+  oled_draw_string(sht_humid_str,2, 2);
+  oled_draw_string(sgp_tvoc_str,3, 4);
+}

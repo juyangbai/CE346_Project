@@ -1,1 +1,2 @@
-# CE346_Final-Project
+# CE346_FinalProject
+Indoor Environmental Monitoring Station
